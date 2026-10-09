@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10秒竖屏短片生成器</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --line: #e3e1dc; --accent: #e8590c; --accent-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141416; --panel: #1e1e21; --text: #f2f2f2; --muted: #a1a1a6; --line: #333338; --accent: #ff7a33; --accent-text: #141416; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px;
+    display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: var(--muted); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  label:first-child { margin-top: 0; }
+  input[type=text], textarea, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--text); font: inherit; }
+  textarea { resize: vertical; min-height: 92px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .thumbs img { width: 44px; height: 78px; object-fit: cover; border-radius: 4px; }
+  button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  canvas { width: 100%; max-width: 360px; aspect-ratio: 9 / 16; border-radius: 12px;
+    background: #000; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
+  .bar { width: 100%; max-width: 360px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); }
+  #status { font-size: 13px; color: var(--muted); min-height: 20px; text-align: center; }
+  #download { display: none; }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>10 秒竖屏短片生成器</h1>
+    <p class="sub">1080×1920（9:16），浏览器本地生成，不上传任何文件。不放图片也能自动生成。</p>
+    <div class="panel">
+      <label for="title">标题</label>
+      <input id="title" type="text" value="京都 · 秋日漫游">
+      <label for="subtitle">副标题</label>
+      <input id="subtitle" type="text" value="3 天 2 夜 私藏路线">
+      <label for="captions">分镜字幕（每行一个镜头，最多 6 个）</label>
+      <textarea id="captions">清晨的伏见稻荷
+岚山竹林小径
+清水寺看红叶
+祇园夜色</textarea>
+      <label for="images">图片（可选，按顺序对应分镜；不足时自动生成画面）</label>
+      <input id="images" type="file" accept="image/*" multiple>
+      <div class="thumbs" id="thumbs"></div>
+      <label for="theme">配色</label>
+      <select id="theme">
+        <option value="sunset">日落橙</option>
+        <option value="ocean">海岛蓝</option>
+        <option value="forest">森林绿</option>
+        <option value="night">都市夜</option>
+      </select>
+      <label for="ending">结尾文案</label>
+      <input id="ending" type="text" value="收藏这条路线 ✈">
+      <div class="check"><input id="music" type="checkbox" checked><label for="music" style="margin:0;color:inherit">自动配乐（合成节拍）</label></div>
+      <div class="actions">
+        <button id="preview">预览</button>
+        <button id="record" class="primary">生成 10 秒视频</button>
+      </div>
+    </div>
+  </section>
+  <aside class="stage">
+    <canvas id="cv" width="1080" height="1920"></canvas>
+    <div class="bar"><div id="progress"></div></div>
+    <div id="status">点击「预览」或「生成」</div>
+    <a id="download"><button class="primary">下载视频</button></a>
+    <video id="result" controls playsinline style="display:none;width:100%;max-width:360px;border-radius:12px"></video>
+  </aside>
+</main>
+
+<script>
+const W = 1080, H = 1920, DURATION = 10, FPS = 30;
+const INTRO = 2.2, OUTRO = 1.8, FADE = 0.5;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const FONT = '"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif';
+
+const THEMES = {
+  sunset: { sky: ['#2b1055', '#d53369', '#f9a65a'], sun: '#ffe29a', hills: ['#5b2a6e', '#3a1c4f', '#1f0f2e'], accent: '#ff8a3d' },
+  ocean:  { sky: ['#0b3c5d', '#328cc1', '#a8e6ff'], sun: '#fffbe0', hills: ['#1d6a96', '#124e6e', '#08324a'], accent: '#3ecfff' },
+  forest: { sky: ['#0f2027', '#2c5364', '#b5e48c'], sun: '#f1fa8c', hills: ['#2d6a4f', '#1b4332', '#081c15'], accent: '#95d5b2' },
+  night:  { sky: ['#000428', '#1b1f5e', '#4a2c7a'], sun: '#e0e7ff', hills: ['#272b5c', '#181a3d', '#0a0b1e'], accent: '#b388ff' },
+};
+
+let images = [];
+$('images').addEventListener('change', async e => {
+  const files = [...e.target.files].slice(0, 6);
+  images = await Promise.all(files.map(f => new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = URL.createObjectURL(f);
+  })));
+  $('thumbs').replaceChildren(...images.map(i => { const t = new Image(); t.src = i.src; return t; }));
+  renderFrame(INTRO + 0.5);
+});
+
+function config() {
+  const captions = $('captions').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 6);
+  const n = Math.max(captions.length, images.length, 1);
+  return {
+    title: $('title').value.trim(), subtitle: $('subtitle').value.trim(),
+    ending: $('ending').value.trim(), theme: THEMES[$('theme').value],
+    scenes: Array.from({ length: n }, (_, i) => ({ caption: captions[i] || '', img: images[i] || null, seed: i * 7.3 + 1 })),
+  };
+}
+
+const ease = t => t < 0 ? 0 : t > 1 ? 1 : 1 - Math.pow(1 - t, 3);
+const clamp01 = t => Math.max(0, Math.min(1, t));
+
+// 无图片时的程序化场景：渐变天空 + 太阳 + 视差山峦
+function drawProcedural(s, local, theme) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  theme.sky.forEach((c, i) => g.addColorStop(i / (theme.sky.length - 1), c));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const sunY = H * (0.42 - 0.03 * local) + Math.sin(s.seed) * 120;
+  const sunX = W * (0.5 + 0.25 * Math.sin(s.seed * 2.1));
+  const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 520);
+  glow.addColorStop(0, theme.sun); glow.addColorStop(0.25, theme.sun + 'aa'); glow.addColorStop(1, theme.sun + '00');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  theme.hills.forEach((c, layer) => {
+    const base = H * (0.62 + layer * 0.11), amp = 140 - layer * 30, shift = local * (40 + layer * 60);
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 20) {
+      const xx = x + shift + s.seed * 300;
+      const y = base - amp * (0.6 * Math.sin(xx / 260 + layer) + 0.4 * Math.sin(xx / 97 + s.seed));
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fillStyle = c; ctx.fill();
+  });
+}
+
+// 图片 Ken Burns：cover 填充 + 缓慢推拉平移
+function drawImage(s, local) {
+  const img = s.img, zoomIn = Math.floor(s.seed) % 2 === 0;
+  const scale = zoomIn ? 1 + 0.15 * local : 1.15 - 0.15 * local;
+  const k = Math.max(W / img.width, H / img.height) * scale;
+  const dw = img.width * k, dh = img.height * k;
+  const dir = Math.sin(s.seed * 3.7) > 0 ? 1 : -1;
+  const x = (W - dw) / 2 + dir * (local - 0.5) * (dw - W) * 0.8;
+  const y = (H - dh) / 2;
+  ctx.drawImage(img, x, y, dw, dh);
+}
+
+function drawScene(s, local, theme) {
+  ctx.save();
+  s.img ? drawImage(s, local) : drawProcedural(s, local, theme);
+  ctx.restore();
+}
+
+function wrapLines(text, maxW) {
+  const lines = []; let line = '';
+  for (const ch of text) {
+    if (ctx.measureText(line + ch).width > maxW && line) { lines.push(line); line = ch; }
+    else line += ch;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawText(text, y, size, alpha, offset, weight = 700) {
+  if (!text || alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `${weight} ${size}px ${FONT}`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 4;
+  wrapLines(text, W - 160).forEach((l, i) => ctx.fillText(l, W / 2, y + offset + i * size * 1.25));
+  ctx.restore();
+}
+
+function drawCaption(text, alpha, rise, theme) {
+  if (!text || alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `600 64px ${FONT}`;
+  const tw = Math.min(ctx.measureText(text).width, W - 160);
+  const bw = tw + 90, bh = 120, bx = (W - bw) / 2, by = H * 0.76 + rise;
+  ctx.fillStyle = 'rgba(0,0,0,.45)';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 60); ctx.fill();
+  ctx.fillStyle = theme.accent; ctx.fillRect(bx + 45, by + bh - 22, tw * ease(alpha), 6);
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, W / 2, by + bh / 2 - 6, W - 160);
+  ctx.restore();
+}
+
+// 镜头时间轴：字幕区间 [INTRO, DURATION-OUTRO] 均分给各镜头，首镜头覆盖开场、末镜头覆盖结尾
+function sceneSpan(i, n) {
+  const seg = (DURATION - INTRO - OUTRO) / n;
+  return [i === 0 ? 0 : INTRO + i * seg, i === n - 1 ? DURATION : INTRO + (i + 1) * seg, INTRO + i * seg, INTRO + (i + 1) * seg];
+}
+
+function renderFrame(t) {
+  const c = config(), n = c.scenes.length;
+  let idx = 0;
+  while (idx < n - 1 && t >= sceneSpan(idx, n)[1]) idx++;
+  const [s0, s1, cs, ce] = sceneSpan(idx, n);
+  const local = (t - s0) / (s1 - s0);
+
+  drawScene(c.scenes[idx], local, c.theme);
+  // 交叉淡入下一镜头
+  const tNext = s1 - t;
+  if (idx < n - 1 && tNext < FADE) {
+    ctx.globalAlpha = 1 - tNext / FADE;
+    drawScene(c.scenes[idx + 1], 0, c.theme);
+    ctx.globalAlpha = 1;
+  }
+
+  // 底部暗角，保证字幕可读
+  const v = ctx.createLinearGradient(0, H * 0.55, 0, H);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, H * 0.55, W, H * 0.45);
+
+  // 开场标题
+  const inA = ease(t / 0.8), outA = 1 - clamp01((t - INTRO + 0.4) / 0.4);
+  const titleA = Math.min(inA, outA);
+  if (titleA > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${0.25 * titleA})`; ctx.fillRect(0, 0, W, H);
+    drawText(c.title, H * 0.42, 110, titleA, (1 - inA) * 60, 800);
+    drawText(c.subtitle, H * 0.42 + 170, 56, Math.min(ease((t - 0.3) / 0.8), outA), (1 - ease((t - 0.3) / 0.8)) * 40, 500);
+  }
+
+  // 分镜字幕（仅在本镜头的字幕区间内显示）
+  if (t > cs && t < ce) {
+    const a = Math.min(clamp01((t - cs) / 0.4), clamp01((ce - t) / 0.3));
+    drawCaption(c.scenes[idx].caption, a, (1 - ease((t - cs) / 0.5)) * 40, c.theme);
+  }
+
+  // 结尾
+  const eT = t - (DURATION - OUTRO);
+  if (eT > 0) {
+    const a = ease(eT / 0.5);
+    ctx.fillStyle = `rgba(0,0,0,${0.45 * a})`; ctx.fillRect(0, 0, W, H);
+    drawText(c.ending, H * 0.48, 88, a, (1 - a) * 50, 800);
+    ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = c.theme.accent;
+    ctx.fillRect(W / 2 - 80 * a, H * 0.48 + 90, 160 * a, 8); ctx.restore();
+  }
+
+  $('progress').style.width = `${(t / DURATION) * 100}%`;
+}
+
+// 合成配乐：120 BPM 底鼓 + 和弦铺底，10 秒
+function buildMusic(actx, out) {
+  const t0 = actx.currentTime + 0.05, beat = 0.5;
+  const master = actx.createGain();
+  master.gain.setValueAtTime(0.0001, t0);
+  master.gain.exponentialRampToValueAtTime(0.8, t0 + 0.6);
+  master.gain.setValueAtTime(0.8, t0 + DURATION - 1);
+  master.gain.exponentialRampToValueAtTime(0.0001, t0 + DURATION);
+  master.connect(out);
+  for (let i = 0; i < DURATION / beat; i++) {
+    const t = t0 + i * beat, o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.18);
+    g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(g).connect(master); o.start(t); o.stop(t + 0.3);
+  }
+  const chords = [[220, 277.2, 329.6], [196, 246.9, 293.7], [174.6, 220, 261.6], [196, 246.9, 293.7]];
+  const len = DURATION / chords.length;
+  chords.forEach((ch, ci) => ch.forEach(f => {
+    const t = t0 + ci * len, o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06, t + 0.3);
+    g.gain.linearRampToValueAtTime(0.0001, t + len);
+    o.connect(g).connect(master); o.start(t); o.stop(t + len + 0.05);
+  }));
+}
+
+function pickMime() {
+  const list = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  return list.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+}
+
+let running = false;
+function play(onFrame) {
+  return new Promise(resolve => {
+    const start = performance.now();
+    const tick = now => {
+      const t = Math.min((now - start) / 1000, DURATION);
+      renderFrame(t); onFrame && onFrame(t);
+      if (t < DURATION) requestAnimationFrame(tick); else resolve();
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function setBusy(b, msg) {
+  running = b; $('preview').disabled = b; $('record').disabled = b; $('status').textContent = msg;
+}
+
+$('preview').onclick = async () => {
+  if (running) return;
+  setBusy(true, '预览中…');
+  await play();
+  setBusy(false, '预览完成');
+};
+
+$('record').onclick = async () => {
+  if (running) return;
+  const mime = pickMime();
+  if (!window.MediaRecorder || !cv.captureStream) { $('status').textContent = '此浏览器不支持录制，请使用最新版 Chrome / Edge / Safari'; return; }
+  setBusy(true, '录制中… 请保持此页面在前台');
+  $('download').style.display = 'none'; $('result').style.display = 'none';
+
+  renderFrame(0);
+  const stream = cv.captureStream(FPS);
+  let actx = null;
+  if ($('music').checked) {
+    actx = new AudioContext();
+    const dest = actx.createMediaStreamDestination();
+    buildMusic(actx, dest);
+    dest.stream.getAudioTracks().forEach(tr => stream.addTrack(tr));
+  }
+  const rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: 8_000_000 });
+  const chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const done = new Promise(r => rec.onstop = r);
+  rec.start(250);
+  await play();
+  rec.stop();
+  await done;
+  stream.getTracks().forEach(tr => tr.stop());
+  actx && actx.close();
+
+  const type = rec.mimeType || mime || 'video/webm';
+  const blob = new Blob(chunks, { type });
+  const ext = type.includes('mp4') ? 'mp4' : 'webm';
+  const url = URL.createObjectURL(blob);
+  $('result').src = url; $('result').style.display = 'block';
+  const a = $('download');
+  a.href = url; a.download = `${$('title').value.trim() || 'video'}.${ext}`; a.style.display = 'inline-block';
+  setBusy(false, `完成：${(blob.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()} · 1080×1920`);
+};
+
+['title', 'subtitle', 'captions', 'theme', 'ending'].forEach(id => $(id).addEventListener('input', () => !running && renderFrame(INTRO + 0.5)));
+renderFrame(INTRO + 0.5);
+</script>
+</body>
+</html>

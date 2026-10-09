@@ -49,17 +49,16 @@
 <main>
   <section>
     <h1>10 秒竖屏短片生成器</h1>
-    <p class="sub">1080×1920（9:16），浏览器本地生成，不上传任何文件。不放图片也能自动生成。</p>
+    <p class="sub">1080×1920（9:16），适配 YouTube Shorts / 小红书安全区。浏览器本地生成，不上传任何文件。正式上传建议用 <code>video/render.mjs</code> 导出的 H.264 MP4。</p>
     <div class="panel">
       <label for="title">标题</label>
-      <input id="title" type="text" value="京都 · 秋日漫游">
+      <input id="title" type="text" value="3 个习惯 效率翻倍">
       <label for="subtitle">副标题</label>
-      <input id="subtitle" type="text" value="3 天 2 夜 私藏路线">
+      <input id="subtitle" type="text" value="第 2 个最多人做不到">
       <label for="captions">分镜字幕（每行一个镜头，最多 6 个）</label>
-      <textarea id="captions">清晨的伏见稻荷
-岚山竹林小径
-清水寺看红叶
-祇园夜色</textarea>
+      <textarea id="captions">早起先做最难的事
+手机放进另一个房间
+每晚写下明天 3 件事</textarea>
       <label for="images">图片（可选，按顺序对应分镜；不足时自动生成画面）</label>
       <input id="images" type="file" accept="image/*" multiple>
       <div class="thumbs" id="thumbs"></div>
@@ -71,7 +70,7 @@
         <option value="night">都市夜</option>
       </select>
       <label for="ending">结尾文案</label>
-      <input id="ending" type="text" value="收藏这条路线 ✈">
+      <input id="ending" type="text" value="收藏 · 明天就开始">
       <div class="check"><input id="music" type="checkbox" checked><label for="music" style="margin:0;color:inherit">自动配乐（合成节拍）</label></div>
       <div class="actions">
         <button id="preview">预览</button>
@@ -90,11 +89,13 @@
 
 <script>
 const W = 1080, H = 1920, DURATION = 10, FPS = 30;
-const INTRO = 2.2, OUTRO = 1.8, FADE = 0.5;
+const INTRO = 1.6, OUTRO = 1.6, FADE = 0.5;
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 const $ = id => document.getElementById(id);
-const FONT = '"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif';
+const FONT = '"PingFang SC","Noto Sans SC","Microsoft YaHei","WenQuanYi Zen Hei",sans-serif';
+// 安全区（YouTube Shorts / 小红书）：底部约 25% 被标题、账号、互动栏遮挡，右侧有点赞按钮列
+const SAFE = { captionY: H * 0.6, titleY: H * 0.38, endingY: H * 0.42 };
 
 const THEMES = {
   sunset: { sky: ['#2b1055', '#d53369', '#f9a65a'], sun: '#ffe29a', hills: ['#5b2a6e', '#3a1c4f', '#1f0f2e'], accent: '#ff8a3d' },
@@ -197,7 +198,7 @@ function drawCaption(text, alpha, rise, theme) {
   ctx.globalAlpha = alpha;
   ctx.font = `600 64px ${FONT}`;
   const tw = Math.min(ctx.measureText(text).width, W - 160);
-  const bw = tw + 90, bh = 120, bx = (W - bw) / 2, by = H * 0.76 + rise;
+  const bw = tw + 90, bh = 120, bx = (W - bw) / 2, by = SAFE.captionY + rise;
   ctx.fillStyle = 'rgba(0,0,0,.45)';
   ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 60); ctx.fill();
   ctx.fillStyle = theme.accent; ctx.fillRect(bx + 45, by + bh - 22, tw * ease(alpha), 6);
@@ -234,12 +235,15 @@ function renderFrame(t) {
   ctx.fillStyle = v; ctx.fillRect(0, H * 0.55, W, H * 0.45);
 
   // 开场标题
-  const inA = ease(t / 0.8), outA = 1 - clamp01((t - INTRO + 0.4) / 0.4);
-  const titleA = Math.min(inA, outA);
+  // 第 0 帧即显示完整标题：前 1 秒决定划走率，且第 0 帧常被平台用作封面
+  const titleA = 1 - clamp01((t - INTRO + 0.4) / 0.4);
   if (titleA > 0) {
-    ctx.fillStyle = `rgba(0,0,0,${0.25 * titleA})`; ctx.fillRect(0, 0, W, H);
-    drawText(c.title, H * 0.42, 110, titleA, (1 - inA) * 60, 800);
-    drawText(c.subtitle, H * 0.42 + 170, 56, Math.min(ease((t - 0.3) / 0.8), outA), (1 - ease((t - 0.3) / 0.8)) * 40, 500);
+    const pop = 1 + 0.04 * (1 - ease(t / 0.4));
+    ctx.fillStyle = `rgba(0,0,0,${0.3 * titleA})`; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(W / 2, SAFE.titleY); ctx.scale(pop, pop); ctx.translate(-W / 2, -SAFE.titleY);
+    drawText(c.title, SAFE.titleY, 110, titleA, 0, 800);
+    ctx.restore();
+    drawText(c.subtitle, SAFE.titleY + 190, 58, titleA, 0, 500);
   }
 
   // 分镜字幕（仅在本镜头的字幕区间内显示）
@@ -253,9 +257,9 @@ function renderFrame(t) {
   if (eT > 0) {
     const a = ease(eT / 0.5);
     ctx.fillStyle = `rgba(0,0,0,${0.45 * a})`; ctx.fillRect(0, 0, W, H);
-    drawText(c.ending, H * 0.48, 88, a, (1 - a) * 50, 800);
+    drawText(c.ending, SAFE.endingY, 88, a, (1 - a) * 50, 800);
     ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = c.theme.accent;
-    ctx.fillRect(W / 2 - 80 * a, H * 0.48 + 90, 160 * a, 8); ctx.restore();
+    ctx.fillRect(W / 2 - 80 * a, SAFE.endingY + 90, 160 * a, 8); ctx.restore();
   }
 
   $('progress').style.width = `${(t / DURATION) * 100}%`;
@@ -351,6 +355,41 @@ $('record').onclick = async () => {
   const a = $('download');
   a.href = url; a.download = `${$('title').value.trim() || 'video'}.${ext}`; a.style.display = 'inline-block';
   setBusy(false, `完成：${(blob.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()} · 1080×1920`);
+};
+
+// 供 render.mjs 逐帧离线渲染调用
+function encodeWav(buf) {
+  const ch = buf.numberOfChannels, len = buf.length, out = new DataView(new ArrayBuffer(44 + len * ch * 2));
+  const str = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); out.setUint32(4, 36 + len * ch * 2, true); str(8, 'WAVEfmt ');
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, ch, true);
+  out.setUint32(24, buf.sampleRate, true); out.setUint32(28, buf.sampleRate * ch * 2, true);
+  out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true); str(36, 'data'); out.setUint32(40, len * ch * 2, true);
+  const data = [...Array(ch)].map((_, i) => buf.getChannelData(i));
+  for (let i = 0, o = 44; i < len; i++) for (let c = 0; c < ch; c++, o += 2)
+    out.setInt16(o, Math.max(-1, Math.min(1, data[c][i])) * 0x7fff, true);
+  return out.buffer;
+}
+
+window.VideoKit = {
+  DURATION, FPS,
+  async load(spec) {
+    $('title').value = spec.title || ''; $('subtitle').value = spec.subtitle || '';
+    $('captions').value = (spec.captions || []).join('\n'); $('ending').value = spec.ending || '';
+    $('theme').value = THEMES[spec.theme] ? spec.theme : 'sunset';
+    images = await Promise.all((spec.images || []).slice(0, 6).map(src => new Promise((res, rej) => {
+      const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = src;
+    })));
+    await document.fonts.ready;
+  },
+  frame(t) { renderFrame(t); return cv.toDataURL('image/jpeg', 0.92); },
+  async music() {
+    const octx = new OfflineAudioContext(2, 44100 * DURATION, 44100);
+    buildMusic(octx, octx.destination);
+    const bytes = new Uint8Array(encodeWav(await octx.startRendering()));
+    let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  },
 };
 
 ['title', 'subtitle', 'captions', 'theme', 'ending'].forEach(id => $(id).addEventListener('input', () => !running && renderFrame(INTRO + 0.5)));

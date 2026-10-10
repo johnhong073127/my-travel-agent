@@ -9,8 +9,8 @@
 - **Windows**：
   1. 从 python.org 下载「Python install manager」并安装，然后在 PowerShell 运行 `py install 3.14`（不要用刚发布的最新版，依赖库可能还没跟上）
   2. 运行 `winget install Gyan.FFmpeg`，装完关掉窗口
-  3. 双击 `start.bat`
-- **macOS / Linux**：运行 `./start.sh`（没有 ffmpeg 的话先 `brew install ffmpeg`）
+  3. 双击 `START-Windows.bat`
+- **macOS / Linux**：运行 `./start-mac.sh`（没有 ffmpeg 的话先 `brew install ffmpeg`）
 
 首次运行会自动安装依赖，然后浏览器打开 http://127.0.0.1:8765 。项目文件保存在 `projects/main/`。
 

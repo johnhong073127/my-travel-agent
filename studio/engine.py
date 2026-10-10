@@ -52,7 +52,8 @@ class Shot:
     def __init__(self, image_path, shot, scale=1.0):
         self.p = p = shot_params(shot)
         self.ow, self.oh = int(OW * scale) // 2 * 2, int(OH * scale) // 2 * 2
-        src = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        # cv2.imread 在 Windows 上不支持中文路径，先用 numpy 读字节再解码
+        src = cv2.imdecode(np.fromfile(image_path, np.uint8), cv2.IMREAD_COLOR)
         if src is None:
             raise ValueError(f'无法读取图片 {image_path}')
         self.src = src.astype(np.float32) / 255

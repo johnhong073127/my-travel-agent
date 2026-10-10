@@ -173,7 +173,8 @@ class Handler(BaseHTTPRequestHandler):
                 urls = []
                 for k, i in enumerate([0, n // 3, int(n * (1 - hold / shot.D)) - 1, n - 1]):
                     rel = f'cache/preview_{k}_{tag}.jpg'
-                    cv2.imwrite(str(PROJ / rel), shot.frame(max(0, i)), [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    # cv2.imwrite 不支持中文路径：先编码再写字节
+                    (PROJ / rel).write_bytes(cv2.imencode('.jpg', shot.frame(max(0, i)), [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes())
                     urls.append({'path': rel, 't': round(max(0, i) / engine.FPS, 2)})
                 for old in (PROJ / 'cache').glob('preview_*.jpg'):
                     if tag not in old.name and time.time() - old.stat().st_mtime > 60:

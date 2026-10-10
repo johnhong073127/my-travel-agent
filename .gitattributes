@@ -1,1 +1,2 @@
-*.bat text eol=crlf
+# 保持 CRLF 原样入库：ZIP 下载不会做换行转换
+*.bat -text

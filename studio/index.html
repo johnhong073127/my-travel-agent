@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>影片工作室</title>
+<style>
+  :root { --bg:#f5f4f1; --panel:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:#e2e0db; --accent:#b4441c; --accent-t:#fff;
+    --start:#2f9e44; --end:#e8590c; --hz:#1c7ed6; --light:#f08c00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#131315; --panel:#1d1d20; --text:#f1f1f1; --muted:#9a9aa0; --line:#323237;
+    --accent:#ff8a50; --accent-t:#131315; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  header { position:sticky; top:0; z-index:5; display:flex; gap:12px; align-items:center; padding:10px 16px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header input { font-size:16px; font-weight:600; border:none; background:transparent; color:var(--text); min-width:0; flex:1; }
+  #saved { color:var(--muted); font-size:12px; }
+  main { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:16px; padding:16px; max-width:1400px; margin:0 auto; }
+  @media (max-width:980px) { main { grid-template-columns:1fr; } }
+  h2 { font-size:15px; margin:0 0 10px; display:flex; justify-content:space-between; align-items:center; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:16px; }
+  .shot { display:grid; grid-template-columns:300px minmax(0,1fr); gap:14px; }
+  @media (max-width:700px) { .shot { grid-template-columns:1fr; } }
+  .frame { position:relative; border-radius:6px; overflow:hidden; background:#000; cursor:crosshair; }
+  .frame img { display:block; width:100%; }
+  .frame canvas { position:absolute; inset:0; width:100%; height:100%; }
+  .drop { border:2px dashed var(--line); border-radius:8px; padding:40px 10px; text-align:center; color:var(--muted); cursor:pointer; }
+  .modes { display:flex; gap:4px; margin:8px 0; flex-wrap:wrap; }
+  .modes button { padding:3px 8px; font-size:12px; }
+  .modes button.on { outline:2px solid currentColor; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px 12px; }
+  label.f { display:flex; flex-direction:column; font-size:12px; color:var(--muted); }
+  label.f span b { color:var(--text); font-weight:500; }
+  input[type=number], input[type=text], select, textarea { font:inherit; padding:5px 7px; border:1px solid var(--line);
+    border-radius:6px; background:var(--bg); color:var(--text); width:100%; }
+  textarea { resize:vertical; min-height:54px; }
+  input[type=range] { width:100%; }
+  button { font:inherit; padding:6px 12px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-t); font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .thumbs { display:flex; gap:6px; margin-top:8px; }
+  .thumbs figure { margin:0; flex:1; text-align:center; font-size:11px; color:var(--muted); }
+  .thumbs img { width:100%; border-radius:4px; display:block; }
+  .line { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; }
+  .line:first-of-type { border-top:none; margin-top:0; padding-top:0; }
+  .tl { position:relative; height:64px; background:var(--bg); border-radius:6px; overflow:hidden; font-size:11px; }
+  .tl div { position:absolute; height:24px; border-radius:4px; padding:3px 5px; overflow:hidden; white-space:nowrap; color:#fff; }
+  .tl .s { top:4px; background:#495057; }
+  .tl .v { top:34px; background:var(--end); }
+  .tl .v.over { background:#c92a2a; }
+  .hint { color:var(--muted); font-size:12px; margin:6px 0 0; }
+  .err { color:#e03131; font-size:12px; }
+  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:8px 0; }
+  .bar div { height:100%; width:0; background:var(--accent); transition:width .3s; }
+  video { width:100%; border-radius:8px; background:#000; }
+  .legend { display:flex; gap:10px; font-size:11px; color:var(--muted); flex-wrap:wrap; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:3px; vertical-align:-1px; }
+</style>
+</head>
+<body>
+<header>
+  <input id="title" aria-label="影片标题">
+  <span id="saved"></span>
+  <button class="primary" id="renderBtn">渲染成片</button>
+</header>
+<main>
+  <section>
+    <div class="panel">
+      <h2>镜头 <button id="addShot">＋ 添加镜头</button></h2>
+      <div class="legend">
+        <span><i style="background:var(--start)"></i>起始画面</span><span><i style="background:var(--end)"></i>结束画面（推镜目标）</span>
+        <span><i style="background:var(--hz)"></i>地平线（以下为地面，越近视差越大）</span><span><i style="background:var(--light)"></i>天光位置</span>
+      </div>
+      <p class="hint">先选上方模式按钮，再在图上点击即可设置。原画建议竖版，或高度 ≥ 2048 像素，推近时才不会发糊。</p>
+      <div id="shots"></div>
+    </div>
+  </section>
+  <aside>
+    <div class="panel">
+      <h2>时间线 <span id="total" class="hint" style="margin:0"></span></h2>
+      <div class="tl" id="tl"></div>
+      <p class="hint">灰色为镜头，橙色为旁白。旁白可以跨镜头（声音先行或延后），超出片尾会标红。</p>
+    </div>
+    <div class="panel">
+      <h2>旁白 <button id="addLine">＋ 添加一句</button></h2>
+      <div id="lines"></div>
+    </div>
+    <div class="panel">
+      <h2>背景音乐</h2>
+      <div class="row"><button id="musicBtn">上传音乐</button><span id="musicName" class="hint" style="margin:0"></span></div>
+      <div class="grid" style="margin-top:8px" id="musicCtl"></div>
+    </div>
+    <div class="panel">
+      <h2>导出</h2>
+      <div id="status" class="hint" style="margin:0">尚未渲染</div>
+      <div class="bar"><div id="prog"></div></div>
+      <div id="result"></div>
+      <p class="hint">输出：1080×1920 · 30fps · H.264 + AAC · 响度 −14 LUFS，可直接上传 YouTube Shorts / 小红书。</p>
+    </div>
+  </aside>
+</main>
+<input type="file" id="file" hidden>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let P = null, voices = [], saveTimer = null;
+const mode = {};               // 每个镜头当前的点选模式
+const imgSize = {};            // 图片原始尺寸缓存
+
+const SHOT = () => ({ image: null, duration: 5, transition: 0.5, hold: 0.8,
+  cam_start: { x: .5, y: .6, zoom: 1.1 }, cam_end: { x: .5, y: .45, zoom: 1.6 }, horizon: .5, parallax: .15, rise: .04,
+  fog: .5, dust: .5, embers: .5, fire: .6, light: { x: .5, y: .15, strength: .5 }, grain: .5, ambience: 'battlefield', hush_end: true });
+const LINE = () => ({ text: '', voice: 'zh-CN-YunjianNeural', rate: -20, pitch: -8, start: 0, gain: 1, audio: null, duration: 0 });
+
+async function api(path, opt = {}) {
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function save() {
+  $('#saved').textContent = '保存中…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    await api('/api/project', { method: 'PUT', body: JSON.stringify(P) });
+    $('#saved').textContent = '已保存';
+  }, 400);
+  drawTimeline();
+}
+function pickFile(accept) {
+  return new Promise(res => {
+    const f = $('#file'); f.accept = accept; f.value = '';
+    f.onchange = () => res(f.files[0]); f.click();
+  });
+}
+async function upload(file) {
+  return api('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+}
+const fileUrl = p => '/files/' + p.split('/').map(encodeURIComponent).join('/');
+
+// ---------- 时间线 ----------
+function timeline() {
+  let cur = 0, prev = null; const offs = [];
+  for (const s of P.shots.filter(s => s.image)) {
+    if (prev !== null) cur -= Math.min(s.transition, prev, s.duration);
+    offs.push(cur); cur += +s.duration; prev = +s.duration;
+  }
+  return { offs, total: cur };
+}
+function drawTimeline() {
+  const { offs, total } = timeline(), shots = P.shots.filter(s => s.image);
+  const end = Math.max(total, ...P.narration.map(l => +l.start + (+l.duration || 0)), 1);
+  const pct = x => (x / end * 100) + '%';
+  $('#total').textContent = `成片 ${total.toFixed(1)} 秒`;
+  $('#tl').innerHTML = shots.map((s, i) => `<div class="s" style="left:${pct(offs[i])};width:calc(${pct(+s.duration)} - 2px)">镜头 ${i + 1}</div>`).join('') +
+    P.narration.filter(l => l.duration).map((l, i) => `<div class="v ${+l.start + l.duration > total + 0.01 ? 'over' : ''}" style="left:${pct(+l.start)};width:${pct(l.duration)}" title="${esc(l.text)}">${esc(l.text)}</div>`).join('');
+}
+
+// ---------- 镜头 ----------
+function sliders(obj, defs, onchange) {
+  return defs.map(([key, label, min, max, step, path]) => {
+    const tgt = path ? obj[path] : obj;
+    return `<label class="f"><span>${label} <b>${tgt[key]}</b></span><input type="range" min="${min}" max="${max}" step="${step}" value="${tgt[key]}" data-k="${key}" data-p="${path || ''}"></label>`;
+  }).join('');
+}
+function bindSliders(el, obj, after) {
+  el.querySelectorAll('input[type=range]').forEach(r => r.oninput = () => {
+    const tgt = r.dataset.p ? obj[r.dataset.p] : obj;
+    tgt[r.dataset.k] = +r.value; r.previousElementSibling.querySelector('b').textContent = r.value;
+    after && after(); save();
+  });
+}
+function rectOf(cam, W, H) {
+  const fullH = Math.min(H, W * 16 / 9), h = fullH / Math.max(1, cam.zoom), w = h * 9 / 16;
+  const cx = Math.min(Math.max(cam.x * W, w / 2), W - w / 2), cy = Math.min(Math.max(cam.y * H, h / 2), H - h / 2);
+  return [cx - w / 2, cy - h / 2, w, h];
+}
+function drawOverlay(i) {
+  const s = P.shots[i], card = document.querySelector(`[data-shot="${i}"]`), cv = card?.querySelector('canvas'), sz = imgSize[s.image];
+  if (!cv || !sz) return;
+  const k = cv.clientWidth / sz[0]; cv.width = cv.clientWidth * 2; cv.height = cv.clientHeight * 2;
+  const g = cv.getContext('2d'); g.scale(2 * k, 2 * k);
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v);
+  g.lineWidth = 2 / k;
+  g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, 0, ...sz);
+  [[s.cam_start, '--start'], [s.cam_end, '--end']].forEach(([c, col]) => {
+    const r = rectOf(c, ...sz); g.clearRect(...r);
+  });
+  [[s.cam_start, '--start', [6 / k, 4 / k]], [s.cam_end, '--end', []]].forEach(([c, col, dash]) => {
+    g.strokeStyle = css(col); g.setLineDash(dash); g.strokeRect(...rectOf(c, ...sz));
+  });
+  g.setLineDash([3 / k, 3 / k]); g.strokeStyle = css('--hz');
+  g.beginPath(); g.moveTo(0, s.horizon * sz[1]); g.lineTo(sz[0], s.horizon * sz[1]); g.stroke();
+  g.setLineDash([]); g.fillStyle = css('--light');
+  g.beginPath(); g.arc(s.light.x * sz[0], s.light.y * sz[1], 7 / k, 0, 7); g.fill();
+}
+function renderShots() {
+  $('#shots').innerHTML = P.shots.map((s, i) => `
+    <div class="line" data-shot="${i}">
+      <h2 style="font-size:13px">镜头 ${i + 1}
+        <span class="row"><button data-a="up">↑</button><button data-a="down">↓</button><button data-a="del">删除</button></span></h2>
+      <div class="shot">
+        <div>
+          ${s.image ? `<div class="frame"><img src="${fileUrl(s.image)}" alt=""><canvas></canvas></div>
+            <div class="modes">
+              ${[['start', '起始画面', '--start'], ['end', '结束画面', '--end'], ['horizon', '地平线', '--hz'], ['light', '天光', '--light']].map(([m, l, c]) =>
+                `<button data-m="${m}" class="${(mode[i] || 'end') === m ? 'on' : ''}" style="color:var(${c})">${l}</button>`).join('')}
+              <button data-a="img">换图</button>
+            </div>` : `<div class="drop" data-a="img">点击上传原画</div>`}
+        </div>
+        <div>
+          <div class="grid">
+            <label class="f"><span>时长（秒）</span><input type="number" min="1" max="30" step="0.5" value="${s.duration}" data-n="duration"></label>
+            <label class="f"><span>与上一镜头转场（秒，0=硬切）</span><input type="number" min="0" max="3" step="0.1" value="${s.transition}" data-n="transition"></label>
+            <label class="f"><span>结尾停顿（秒）</span><input type="number" min="0" max="5" step="0.1" value="${s.hold}" data-n="hold"></label>
+            <label class="f"><span>环境声</span><select data-n="ambience">
+              ${[['battlefield', '战场（风 + 火 + 低频）'], ['wind', '只有风声'], ['none', '无']].map(([v, l]) => `<option value="${v}" ${s.ambience === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select></label>
+          </div>
+          <div class="grid" style="margin-top:6px">
+            ${sliders(s, [['zoom', '起始放大', 1, 3, .05, 'cam_start'], ['zoom', '结束放大', 1, 3, .05, 'cam_end'],
+              ['parallax', '景深视差', 0, .4, .01], ['rise', '镜头升高', 0, .1, .005], ['fog', '雾 / 烟', 0, 1, .05], ['dust', '浮尘', 0, 1, .05],
+              ['embers', '余烬', 0, 1, .05], ['fire', '火光闪烁', 0, 1, .05], ['strength', '天光', 0, 1, .05, 'light'], ['grain', '胶片颗粒', 0, 1, .05]])}
+          </div>
+          <label class="row" style="margin-top:6px;font-size:12px"><input type="checkbox" data-n="hush_end" ${s.hush_end ? 'checked' : ''}> 结尾环境声收成寂静</label>
+          <div class="row" style="margin-top:8px"><button data-a="preview" ${s.image ? '' : 'disabled'}>预览关键帧</button><span class="err"></span></div>
+          <div class="thumbs"></div>
+        </div>
+      </div>
+    </div>`).join('') || '<p class="hint">还没有镜头，点「添加镜头」开始。</p>';
+
+  P.shots.forEach((s, i) => {
+    const card = document.querySelector(`[data-shot="${i}"]`);
+    bindSliders(card, s, () => drawOverlay(i));
+    card.querySelectorAll('[data-n]').forEach(el => el.onchange = () => {
+      s[el.dataset.n] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? +el.value : el.value; save();
+    });
+    card.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { mode[i] = b.dataset.m; renderShots(); });
+    card.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+      const a = b.dataset.a;
+      if (a === 'del' && confirm(`删除镜头 ${i + 1}？`)) P.shots.splice(i, 1);
+      if (a === 'up' && i > 0) [P.shots[i - 1], P.shots[i]] = [P.shots[i], P.shots[i - 1]];
+      if (a === 'down' && i < P.shots.length - 1) [P.shots[i + 1], P.shots[i]] = [P.shots[i], P.shots[i + 1]];
+      if (a === 'img') { const f = await pickFile('image/*'); if (!f) return; s.image = (await upload(f)).path; }
+      if (a === 'preview') return preview(i, card, b);
+      save(); renderShots();
+    });
+    const img = card.querySelector('.frame img');
+    if (img) {
+      const ready = () => { imgSize[s.image] = [img.naturalWidth, img.naturalHeight]; drawOverlay(i); };
+      img.complete ? ready() : img.onload = ready;
+      card.querySelector('.frame').onclick = e => {
+        const r = e.currentTarget.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+        const m = mode[i] || 'end';
+        if (m === 'start' || m === 'end') Object.assign(s['cam_' + m], { x: +x.toFixed(3), y: +y.toFixed(3) });
+        if (m === 'horizon') s.horizon = +y.toFixed(3);
+        if (m === 'light') Object.assign(s.light, { x: +x.toFixed(3), y: +y.toFixed(3) });
+        drawOverlay(i); save();
+      };
+    }
+  });
+}
+async function preview(i, card, btn) {
+  btn.disabled = true; btn.textContent = '渲染中…'; card.querySelector('.err').textContent = '';
+  try {
+    const frames = await api('/api/preview', { method: 'POST', body: JSON.stringify(P.shots[i]) });
+    card.querySelector('.thumbs').innerHTML = frames.map(f => `<figure><img src="${fileUrl(f.path)}" alt=""><figcaption>${f.t}s</figcaption></figure>`).join('');
+  } catch (e) { card.querySelector('.err').textContent = e.message; }
+  btn.disabled = false; btn.textContent = '预览关键帧';
+}
+
+// ---------- 旁白 ----------
+function renderLines() {
+  $('#lines').innerHTML = P.narration.map((l, i) => `
+    <div class="line" data-line="${i}">
+      <textarea data-n="text" placeholder="旁白文字，可用「……」制造停顿">${esc(l.text)}</textarea>
+      <div class="grid" style="margin-top:6px">
+        <label class="f"><span>声音</span><select data-n="voice">${voices.map(v => `<option value="${v.id}" ${l.voice === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}</select></label>
+        <label class="f"><span>开始时间（秒）</span><input type="number" step="0.1" min="0" value="${l.start}" data-n="start"></label>
+        ${sliders(l, [['rate', '语速 %', -50, 30, 1], ['pitch', '音调 Hz', -30, 20, 1], ['gain', '音量', 0, 2, .05]])}
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button data-a="tts" class="primary">生成配音</button><button data-a="rec">上传录音</button><button data-a="del">删除</button>
+        <span class="hint" style="margin:0">${l.duration ? `时长 ${l.duration} 秒` : '未配音'}</span>
+      </div>
+      ${l.audio ? `<audio controls src="${fileUrl(l.audio)}" style="width:100%;margin-top:6px"></audio>` : ''}
+      <div class="err"></div>
+    </div>`).join('') || '<p class="hint">没有旁白。</p>';
+  P.narration.forEach((l, i) => {
+    const el = document.querySelector(`[data-line="${i}"]`);
+    bindSliders(el, l);
+    el.querySelectorAll('[data-n]').forEach(x => x.onchange = () => { l[x.dataset.n] = x.type === 'number' ? +x.value : x.value; save(); });
+    el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+      const err = el.querySelector('.err'); err.textContent = '';
+      try {
+        if (b.dataset.a === 'del') { P.narration.splice(i, 1); }
+        if (b.dataset.a === 'tts') {
+          b.disabled = true; b.textContent = '生成中…';
+          const r = await api('/api/tts', { method: 'POST', body: JSON.stringify(l) });
+          Object.assign(l, { audio: r.path, duration: r.duration });
+        }
+        if (b.dataset.a === 'rec') {
+          const f = await pickFile('audio/*'); if (!f) return;
+          const r = await upload(f); Object.assign(l, { audio: r.path, duration: r.duration });
+        }
+        save(); renderLines();
+      } catch (e) { err.textContent = e.message; b.disabled = false; b.textContent = '生成配音'; }
+    });
+  });
+}
+
+// ---------- 配乐 ----------
+function renderMusic() {
+  const m = P.music;
+  $('#musicName').textContent = m?.audio ? m.audio.split('/').pop().replace(/^\w{8}_/, '') : '无（可选）';
+  $('#musicCtl').innerHTML = m?.audio ? sliders(m, [['volume', '音量', 0, 1, .05], ['duck', '旁白时压低', 0, 1, .05]]) +
+    `<button id="musicDel">移除</button>` : '';
+  if (m?.audio) { bindSliders($('#musicCtl'), m); $('#musicDel').onclick = () => { P.music = null; save(); renderMusic(); }; }
+}
+$('#musicBtn').onclick = async () => {
+  const f = await pickFile('audio/*'); if (!f) return;
+  P.music = { audio: (await upload(f)).path, volume: .45, duck: .6 }; save(); renderMusic();
+};
+
+// ---------- 渲染 ----------
+$('#renderBtn').onclick = async () => {
+  if (!P.shots.some(s => s.image)) return alert('至少需要一个带图片的镜头');
+  const missing = P.narration.filter(l => l.text.trim() && !l.audio).length;
+  if (missing && !confirm(`有 ${missing} 句旁白还没生成配音，会被跳过。继续？`)) return;
+  clearTimeout(saveTimer); await api('/api/project', { method: 'PUT', body: JSON.stringify(P) });
+  try { await api('/api/render', { method: 'POST' }); poll(); } catch (e) { alert(e.message); }
+};
+async function poll() {
+  const j = await api('/api/status');
+  $('#status').textContent = j.error ? `${j.message}：${j.error}` : j.message || '';
+  $('#prog').style.width = (j.progress * 100) + '%';
+  $('#renderBtn').disabled = j.state === 'running';
+  if (j.state === 'running') return setTimeout(poll, 800);
+  if (j.state === 'done' && j.output) {
+    $('#result').innerHTML = `<video controls playsinline src="${fileUrl(j.output)}"></video>
+      <p class="row"><a href="${fileUrl(j.output)}" download><button class="primary">下载 MP4</button></a></p>`;
+  }
+}
+
+$('#addShot').onclick = () => { P.shots.push(SHOT()); save(); renderShots(); };
+$('#addLine').onclick = () => {
+  const { total } = timeline();
+  P.narration.push({ ...LINE(), start: P.narration.length ? 0 : Math.min(1, total) }); save(); renderLines();
+};
+$('#title').oninput = e => { P.title = e.target.value; save(); };
+window.addEventListener('resize', () => P.shots.forEach((_, i) => drawOverlay(i)));
+
+(async () => {
+  [P, voices] = await Promise.all([api('/api/project'), api('/api/voices')]);
+  P.narration ||= []; P.shots ||= [];
+  $('#title').value = P.title || '';
+  renderShots(); renderLines(); renderMusic(); drawTimeline(); poll();
+})();
+</script>
+</body>
+</html>
